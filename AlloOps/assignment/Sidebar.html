@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font: 13px Arial, sans-serif; color: #202124; padding: 12px; }
+      h2 { font-size: 16px; margin: 0 0 8px; }
+      h3 { font-size: 14px; margin: 18px 0 8px; }
+      .muted { color: #5f6368; }
+      .card { border: 1px solid #dadce0; border-radius: 6px; margin: 8px 0; padding: 10px; }
+      .name { font-weight: bold; margin-bottom: 5px; }
+      .meta { margin: 5px 0; }
+      textarea { box-sizing: border-box; width: 100%; min-height: 64px; margin: 6px 0; }
+      button { background: #1a73e8; border: 0; border-radius: 4px; color: white; cursor: pointer; padding: 7px 10px; }
+      button:disabled { background: #9aa0a6; cursor: default; }
+      .secondary { background: #5f6368; }
+      #message { margin: 10px 0; white-space: pre-wrap; }
+      .error { color: #b3261e; }
+      .success { color: #137333; }
+      .instructions { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h2>AlloOps task tracker</h2>
+    <div id="identity" class="muted">Loading your tasks…</div>
+    <div id="message" role="status"></div>
+    <h3>My pending tasks</h3>
+    <div id="pending"></div>
+    <h3>Team task status (manager)</h3>
+    <div id="teamTasks"></div>
+    <h3>Manager alerts to acknowledge</h3>
+    <div id="alerts"></div>
+    <button class="secondary" onclick="loadData()">Refresh</button>
+    <script>
+      function showMessage(text, isError) {
+        const node = document.getElementById('message');
+        node.textContent = text || '';
+        node.className = isError ? 'error' : 'success';
+      }
+
+      function element(tag, text, className) {
+        const node = document.createElement(tag);
+        node.textContent = text;
+        if (className) node.className = className;
+        return node;
+      }
+
+      function loadData() {
+        showMessage('');
+        google.script.run
+          .withSuccessHandler(renderData)
+          .withFailureHandler(function (error) { showMessage(error.message || String(error), true); })
+          .getSidebarData();
+      }
+
+      function renderData(data) {
+        document.getElementById('identity').textContent = data.email
+          ? 'Signed in as ' + data.email
+          : 'Your signed-in email is unavailable. Use a Workspace account with identity sharing enabled.';
+        renderPending(data.pending || []);
+        renderTeamTasks(data.teamTasks || []);
+        renderAlerts(data.alerts || []);
+      }
+
+      function renderPending(items) {
+        const container = document.getElementById('pending');
+        container.replaceChildren();
+        if (!items.length) {
+          container.appendChild(element('div', 'No pending tasks assigned to you.', 'muted'));
+          return;
+        }
+        items.forEach(function (item) {
+          const card = element('div', '', 'card');
+          card.appendChild(element('div', item.name, 'name'));
+          card.appendChild(element('div', 'Due: ' + item.due, 'meta'));
+          card.appendChild(element('div', 'Evidence: ' + item.proofType, 'meta'));
+          if (item.instructions) card.appendChild(element('div', item.instructions, 'instructions muted'));
+          const input = document.createElement('textarea');
+          input.placeholder = item.proofType === 'TICKET_ID'
+            ? 'Enter portal Ticket ID'
+            : item.proofType === 'DAILY_CONFIRMATION'
+              ? 'Confirm the daily checks completed and note any exceptions'
+              : 'Enter completion evidence';
+          input.setAttribute('aria-label', 'Completion evidence for ' + item.name);
+          card.appendChild(input);
+          const button = element('button', 'Submit completion');
+          button.onclick = function () { submit(item.id, input, button); };
+          card.appendChild(button);
+          container.appendChild(card);
+        });
+      }
+
+      function submit(cycleId, input, button) {
+        button.disabled = true;
+        showMessage('Recording completion…');
+        google.script.run
+          .withSuccessHandler(function (message) {
+            showMessage(message);
+            loadData();
+          })
+          .withFailureHandler(function (error) {
+            showMessage(error.message || String(error), true);
+            button.disabled = false;
+          })
+          .submitCompletion(cycleId, input.value);
+      }
+
+      function renderTeamTasks(items) {
+        const container = document.getElementById('teamTasks');
+        container.replaceChildren();
+        if (!items.length) {
+          container.appendChild(element('div', 'No team tasks assigned to you as manager.', 'muted'));
+          return;
+        }
+        items.forEach(function (item) {
+          const card = element('div', '', 'card');
+          card.appendChild(element('div', item.name, 'name'));
+          card.appendChild(element('div', 'Assignee: ' + item.assignee, 'meta'));
+          card.appendChild(element('div', 'Due: ' + item.due + ' | ' + item.status, 'meta'));
+          card.appendChild(element('div', 'Evidence: ' + item.proofType, 'meta'));
+          container.appendChild(card);
+        });
+      }
+
+      function renderAlerts(items) {
+        const container = document.getElementById('alerts');
+        container.replaceChildren();
+        if (!items.length) {
+          container.appendChild(element('div', 'No manager alerts awaiting your acknowledgement.', 'muted'));
+          return;
+        }
+        items.forEach(function (item) {
+          const card = element('div', '', 'card');
+          card.appendChild(element('div', item.name, 'name'));
+          card.appendChild(element('div', 'Due: ' + item.due, 'meta'));
+          const button = element('button', 'Acknowledge alert');
+          button.onclick = function () {
+            button.disabled = true;
+            google.script.run
+              .withSuccessHandler(function (message) { showMessage(message); loadData(); })
+              .withFailureHandler(function (error) {
+                showMessage(error.message || String(error), true);
+                button.disabled = false;
+              })
+              .acknowledgeAlert(item.id);
+          };
+          card.appendChild(button);
+          container.appendChild(card);
+        });
+      }
+
+      loadData();
+    </script>
+  </body>
+</html>
